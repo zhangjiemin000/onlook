@@ -26,6 +26,7 @@ export interface CreateProjectResponse {
     response?: {
         projectPath: string;
         content: string;
+        warning?: string;
     };
     cancelled?: boolean;
 }

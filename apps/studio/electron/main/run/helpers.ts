@@ -22,6 +22,8 @@ export const IGNORED_DIRECTORIES = [
     'build',
     '.next',
     '.git',
+    '.venv',
+    'venv',
     CUSTOM_OUTPUT_DIR,
 ];
 
@@ -43,13 +45,23 @@ export async function getValidFiles(dirPath: string): Promise<string[]> {
         const files = fs.readdirSync(currentPath);
 
         for (const file of files) {
+            if (IGNORED_DIRECTORIES.includes(file)) {
+                continue;
+            }
+
             const filepath = nodePath.join(currentPath, file);
-            const stat = fs.statSync(filepath);
+            let stat: fs.Stats;
+            try {
+                stat = fs.statSync(filepath);
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+                    continue;
+                }
+                throw error;
+            }
 
             if (stat.isDirectory()) {
-                if (!IGNORED_DIRECTORIES.includes(file)) {
-                    scanDirectory(filepath);
-                }
+                scanDirectory(filepath);
             } else {
                 const fileExt = nodePath.extname(file);
                 if (ALLOWED_EXTENSIONS.includes(fileExt)) {
@@ -61,6 +73,19 @@ export async function getValidFiles(dirPath: string): Promise<string[]> {
 
     scanDirectory(dirPath);
     return validFiles;
+}
+
+export function getLocalDevServerUrl(data: string): string | null {
+    const plainText = data.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
+    const match = plainText.match(/https?:\/\/(?:localhost|127\.0\.0\.1):\d+(?:\/[\w\-./~%]*)?/i);
+    if (!match) {
+        return null;
+    }
+    try {
+        return new URL(match[0]).toString();
+    } catch {
+        return null;
+    }
 }
 
 export function isReactFragment(openingElement: any): boolean {

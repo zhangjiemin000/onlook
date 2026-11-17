@@ -4,6 +4,7 @@ import * as pty from 'node-pty';
 import os from 'os';
 import { mainWindow } from '..';
 import { getBunCommand } from '../bun';
+import { getLocalDevServerUrl } from './helpers';
 
 class TerminalManager {
     private static instance: TerminalManager;
@@ -31,7 +32,7 @@ class TerminalManager {
             });
 
             ptyProcess.onData((data: string) => {
-                this.checkTerminalState(data);
+                this.checkTerminalState(id, data);
                 this.addTerminalMessage(id, data);
             });
 
@@ -43,7 +44,7 @@ class TerminalManager {
         }
     }
 
-    checkTerminalState(data: string) {
+    checkTerminalState(id: string, data: string) {
         if (this.shouldIgnoreCheck(data)) {
             return;
         }
@@ -51,7 +52,7 @@ class TerminalManager {
         if (errorFound) {
             return;
         }
-        this.checkSuccess(data);
+        this.checkSuccess(id, data);
     }
 
     shouldIgnoreCheck(data: string) {
@@ -102,14 +103,23 @@ class TerminalManager {
         return errorFound;
     }
 
-    checkSuccess(data: string): boolean {
-        // Strip ANSI escape codes to get plain text
-        const stripAnsi = (str: string) => str.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
+    checkSuccess(id: string, data: string): boolean {
+        const localUrl = getLocalDevServerUrl(data);
+        if (localUrl) {
+            mainWindow?.webContents.send(MainChannels.RUN_STATE_CHANGED, {
+                state: RunState.RUNNING,
+                message: 'Development server detected.',
+                id,
+                url: localUrl,
+            });
+            return true;
+        }
 
-        const plainText = stripAnsi(data).trim().toLowerCase();
-        const successPatterns = ['get / 200'];
-
-        if (successPatterns.some((pattern) => plainText.includes(pattern))) {
+        const plainText = data
+            .replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '')
+            .trim()
+            .toLowerCase();
+        if (plainText.includes('get / 200')) {
             mainWindow?.webContents.send(MainChannels.RUN_STATE_CHANGED, {
                 state: RunState.RUNNING,
                 message: 'Command executed successfully.',

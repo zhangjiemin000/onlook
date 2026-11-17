@@ -1,6 +1,7 @@
 import { useUserManager } from '@/components/Context';
 import { useTheme } from '@/components/ThemeProvider';
 import { invokeMainChannel } from '@/lib/utils';
+import type { LocalGatewayTestResult } from '@onlook/models/chat';
 import { Language, LANGUAGE_DISPLAY_NAMES, MainChannels, Theme } from '@onlook/models/constants';
 import { DEFAULT_IDE } from '@onlook/models/ide';
 import { Button } from '@onlook/ui/button';
@@ -27,14 +28,19 @@ const PreferencesTab = observer(() => {
     const shouldWarnDelete = userManager.settings.settings?.editor?.shouldWarnDelete ?? true;
     const savedProxyUrl = userManager.settings.settings?.chat?.customProxyUrl ?? '';
     const savedModel = userManager.settings.settings?.chat?.customModel ?? '';
+    const savedApiKey = userManager.settings.settings?.chat?.customApiKey ?? '';
     const [proxyUrl, setProxyUrl] = useState(savedProxyUrl);
     const [modelId, setModelId] = useState(savedModel);
+    const [apiKey, setApiKey] = useState(savedApiKey);
+    const [isTesting, setIsTesting] = useState(false);
+    const [testResult, setTestResult] = useState<LocalGatewayTestResult | null>(null);
     const IDEIcon = Icons[ide.icon];
 
     useEffect(() => {
         setProxyUrl(savedProxyUrl);
         setModelId(savedModel);
-    }, [savedProxyUrl, savedModel]);
+        setApiKey(savedApiKey);
+    }, [savedProxyUrl, savedModel, savedApiKey]);
 
     function updateIde(ide: IDE) {
         userManager.settings.updateEditor({ ideType: ide.type });
@@ -49,20 +55,42 @@ const PreferencesTab = observer(() => {
         userManager.settings.updateEditor({ shouldWarnDelete: enabled });
     }
 
-    function saveGatewayConfig(nextProxy: string, nextModel: string) {
-        userManager.settings.updateChat({
+    async function saveGatewayConfig(nextProxy: string, nextModel: string, nextApiKey: string) {
+        setTestResult(null);
+        await userManager.settings.updateChat({
             customProxyUrl: nextProxy.trim(),
             customModel: nextModel.trim(),
+            customApiKey: nextApiKey.trim(),
         });
+    }
+
+    async function testConnection() {
+        setIsTesting(true);
+        setTestResult(null);
+        try {
+            await saveGatewayConfig(proxyUrl, modelId, apiKey);
+            const result: LocalGatewayTestResult = await invokeMainChannel(
+                MainChannels.TEST_LOCAL_AI_CONNECTION,
+            );
+            setTestResult(result);
+        } catch (error) {
+            setTestResult({
+                success: false,
+                message: error instanceof Error ? error.message : String(error),
+            });
+        } finally {
+            setIsTesting(false);
+        }
     }
 
     return (
         <div className="flex flex-col gap-8 p-6">
             <div className="flex justify-between items-center gap-4">
                 <div className="flex flex-col gap-2">
-                    <p className="text-largePlus">Local AI Proxy URL</p>
+                    <p className="text-largePlus">Built-in AI Proxy URL (optional)</p>
                     <p className="text-foreground-onlook text-small">
-                        Anthropic-compatible gateway URL (defaults to http://127.0.0.1:15721)
+                        Only used by built-in AI. Project preview and external agent tools do not
+                        require it.
                     </p>
                 </div>
                 <Input
@@ -70,23 +98,55 @@ const PreferencesTab = observer(() => {
                     placeholder="http://127.0.0.1:15721"
                     value={proxyUrl}
                     onChange={(e) => setProxyUrl(e.target.value)}
-                    onBlur={() => saveGatewayConfig(proxyUrl, modelId)}
+                    onBlur={() => saveGatewayConfig(proxyUrl, modelId, apiKey)}
                 />
             </div>
             <div className="flex justify-between items-center gap-4">
                 <div className="flex flex-col gap-2">
-                    <p className="text-largePlus">AI Model ID</p>
+                    <p className="text-largePlus">Built-in AI Model ID (optional)</p>
                     <p className="text-foreground-onlook text-small">
-                        Model name sent to gateway (defaults to deepseek-flash[1m])
+                        Leave empty to use environment settings. No model is required for preview or
+                        external agents.
                     </p>
                 </div>
                 <Input
                     className="w-[240px] text-small"
-                    placeholder="deepseek-flash[1m]"
+                    placeholder="e.g. deepseek-flash"
                     value={modelId}
                     onChange={(e) => setModelId(e.target.value)}
-                    onBlur={() => saveGatewayConfig(proxyUrl, modelId)}
+                    onBlur={() => saveGatewayConfig(proxyUrl, modelId, apiKey)}
                 />
+            </div>
+            <div className="flex justify-between items-center gap-4">
+                <div className="flex flex-col gap-2">
+                    <p className="text-largePlus">Built-in AI API Token (optional)</p>
+                    <p className="text-foreground-onlook text-small">
+                        Stored with Electron encryption. Leave empty to use environment credentials.
+                    </p>
+                </div>
+                <Input
+                    className="w-[240px] text-small"
+                    type="password"
+                    autoComplete="off"
+                    placeholder="Gateway API token"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    onBlur={() => saveGatewayConfig(proxyUrl, modelId, apiKey)}
+                />
+            </div>
+            <div className="flex items-center gap-3">
+                <Button variant="outline" onClick={testConnection} disabled={isTesting}>
+                    {isTesting ? 'Testing connection…' : 'Test built-in AI connection'}
+                </Button>
+                {testResult && (
+                    <p
+                        aria-live="polite"
+                        className={`text-small ${testResult.success ? 'text-teal-600' : 'text-red-500'}`}
+                    >
+                        {testResult.model ? `${testResult.model}: ` : ''}
+                        {testResult.message}
+                    </p>
+                )}
             </div>
             <div className="flex justify-between items-center">
                 <div className="flex flex-col gap-2">

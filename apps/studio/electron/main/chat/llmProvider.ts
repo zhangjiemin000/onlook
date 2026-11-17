@@ -1,7 +1,8 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
-import type { StreamRequestType } from '@onlook/models/chat';
+import type { LocalGatewayTestResult, StreamRequestType } from '@onlook/models/chat';
 import { CLAUDE_MODELS, LLMProvider } from '@onlook/models/llm';
-import { type LanguageModelV1 } from 'ai';
+import { generateText, type LanguageModelV1 } from 'ai';
+import { z } from 'zod';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir, userInfo } from 'node:os';
 import { join } from 'node:path';
@@ -51,23 +52,22 @@ function resolveLocalGatewayConfig(): LocalGatewayEnv {
     const baseUrl = trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
 
     const token =
+        PersistentStorage.LOCAL_AI_CREDENTIALS.read()?.apiKey?.trim() ||
         import.meta.env.VITE_ANTHROPIC_API_KEY ||
         process.env.ANTHROPIC_API_KEY ||
         fileEnv.ANTHROPIC_API_KEY ||
         fileEnv.ANTHROPIC_AUTH_TOKEN ||
         'local-proxy';
 
-    const resolvedDefaultModel =
-        customModel ||
-        process.env.ANTHROPIC_MODEL ||
-        fileEnv.ANTHROPIC_MODEL ||
-        process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ||
-        fileEnv.ANTHROPIC_DEFAULT_SONNET_MODEL;
-
     return {
         baseUrl,
         token,
-        primaryModel: resolvedDefaultModel,
+        primaryModel:
+            customModel ||
+            process.env.ANTHROPIC_MODEL ||
+            fileEnv.ANTHROPIC_MODEL ||
+            process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ||
+            fileEnv.ANTHROPIC_DEFAULT_SONNET_MODEL,
         haikuModel:
             customModel ||
             process.env.ANTHROPIC_MODEL ||
@@ -96,9 +96,13 @@ async function getAnthropicProvider(
 ): Promise<LanguageModelV1> {
     const gateway = resolveLocalGatewayConfig();
     const resolvedModelId =
-        model === CLAUDE_MODELS.HAIKU
-            ? gateway.haikuModel || model
-            : gateway.primaryModel || model;
+        model === CLAUDE_MODELS.HAIKU ? gateway.haikuModel : gateway.primaryModel;
+
+    if (!resolvedModelId) {
+        throw new Error(
+            'Built-in AI is not configured. Set a model in Settings → Preferences, or use an external agent. Project preview does not require a model.',
+        );
+    }
 
     const anthropic = createAnthropic({
         baseURL: gateway.baseUrl,
@@ -108,4 +112,53 @@ async function getAnthropicProvider(
     return anthropic(resolvedModelId, {
         cacheControl: true,
     });
+}
+
+export async function testLocalGateway(): Promise<LocalGatewayTestResult> {
+    const gateway = resolveLocalGatewayConfig();
+    const model = gateway.primaryModel;
+    if (!model) {
+        return {
+            success: false,
+            message: 'No model configured. Project preview and external agent tools still work.',
+        };
+    }
+
+    try {
+        const anthropic = createAnthropic({
+            baseURL: gateway.baseUrl,
+            apiKey: gateway.token,
+        });
+        const { toolCalls } = await generateText({
+            model: anthropic(model, { cacheControl: true }),
+            prompt: 'Use the connection_test tool exactly once. Do not answer in plain text.',
+            maxTokens: 256,
+            abortSignal: AbortSignal.timeout(15_000),
+            tools: {
+                connection_test: {
+                    description: 'Verify that the selected model can call Onlook tools.',
+                    parameters: z.object({}),
+                    execute: async () => ({ success: true }),
+                },
+            },
+        });
+        if (toolCalls.length === 0) {
+            return {
+                success: false,
+                message: 'The model responded but did not call the required test tool.',
+                model,
+            };
+        }
+        return {
+            success: true,
+            message: 'Model connection and tool calling are working.',
+            model,
+        };
+    } catch (error) {
+        return {
+            success: false,
+            message: error instanceof Error ? error.message : String(error),
+            model,
+        };
+    }
 }

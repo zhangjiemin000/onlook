@@ -1,4 +1,4 @@
-import { MainChannels } from '@onlook/models/constants';
+import { DefaultSettings, MainChannels } from '@onlook/models/constants';
 import type { AppState, UserMetadata, UserSettings } from '@onlook/models/settings';
 import { ipcMain } from 'electron';
 import mixpanel from '../analytics';
@@ -7,12 +7,32 @@ import { PersistentStorage } from '../storage';
 
 export function listenForStorageMessages() {
     ipcMain.handle(MainChannels.GET_USER_SETTINGS, (e: Electron.IpcMainInvokeEvent) => {
-        return PersistentStorage.USER_SETTINGS.read();
+        const settings = PersistentStorage.USER_SETTINGS.read();
+        const apiKey = PersistentStorage.LOCAL_AI_CREDENTIALS.read()?.apiKey;
+        if (!apiKey) {
+            return settings;
+        }
+        return {
+            ...settings,
+            chat: {
+                ...DefaultSettings.CHAT_SETTINGS,
+                ...settings?.chat,
+                customApiKey: apiKey,
+            },
+        };
     });
 
     ipcMain.handle(
         MainChannels.UPDATE_USER_SETTINGS,
         (e: Electron.IpcMainInvokeEvent, args: Partial<UserSettings>) => {
+            if (args.chat && 'customApiKey' in args.chat) {
+                const { customApiKey, ...chat } = args.chat;
+                PersistentStorage.LOCAL_AI_CREDENTIALS.update({
+                    apiKey: customApiKey?.trim() || undefined,
+                });
+                PersistentStorage.USER_SETTINGS.update({ ...args, chat });
+                return;
+            }
             PersistentStorage.USER_SETTINGS.update(args);
         },
     );

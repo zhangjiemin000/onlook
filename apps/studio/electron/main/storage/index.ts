@@ -2,6 +2,7 @@ import type { ChatConversation, ProjectSuggestions } from '@onlook/models/chat';
 import type {
     AppState,
     AuthTokens,
+    LocalAICredentials,
     ProjectsCache,
     UserMetadata,
     UserSettings,
@@ -14,6 +15,7 @@ export enum StorageType {
     APP_STATE = 'app-state',
     USER_METADATA = 'user-metadata',
     AUTH_TOKENS = 'auth-tokens-v1',
+    LOCAL_AI_CREDENTIALS = 'local-ai-credentials',
     PROJECTS = 'projects',
     CONVERSATIONS = 'conversations-v1',
     SUGGESTIONS = 'suggestions',
@@ -30,6 +32,10 @@ export class PersistentStorage {
     );
     static readonly AUTH_TOKENS = new SingleFilePersistentStorage<AuthTokens>(
         StorageType.AUTH_TOKENS,
+    );
+    static readonly LOCAL_AI_CREDENTIALS = new SingleFilePersistentStorage<LocalAICredentials>(
+        StorageType.LOCAL_AI_CREDENTIALS,
+        true,
     );
     static readonly CONVERSATIONS = new DirectoryPersistentStorage<ChatConversation>(
         StorageType.CONVERSATIONS,

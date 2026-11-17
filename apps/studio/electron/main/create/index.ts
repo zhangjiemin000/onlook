@@ -1,3 +1,4 @@
+import { parse } from '@babel/parser';
 import { extractCodeBlocks } from '@onlook/ai/src/coder';
 import { PAGE_SYSTEM_PROMPT, PromptProvider } from '@onlook/ai/src/prompt';
 import { CreateStage, type CreateCallback, type CreateProjectResponse } from '@onlook/models';
@@ -28,17 +29,20 @@ export class ProjectCreator {
         return ProjectCreator.instance;
     }
 
-    private async executeProjectCreation<T>(action: () => Promise<T>): Promise<{
+    private async executeProjectCreation<T>(
+        action: (controller: AbortController) => Promise<T>,
+    ): Promise<{
         success: boolean;
         error?: string;
         response?: T;
         cancelled?: boolean;
     }> {
         this.cancel();
-        this.abortController = new AbortController();
+        const controller = new AbortController();
+        this.abortController = controller;
 
         try {
-            const result = await action();
+            const result = await action(controller);
             return { success: true, response: result };
         } catch (error) {
             if ((error as Error).name === 'AbortError') {
@@ -47,7 +51,9 @@ export class ProjectCreator {
             console.error('Failed to create project:', error);
             return { success: false, error: (error as Error).message };
         } finally {
-            this.abortController = null;
+            if (this.abortController === controller) {
+                this.abortController = null;
+            }
         }
     }
 
@@ -55,14 +61,25 @@ export class ProjectCreator {
         prompt: string,
         images: ImageMessageContext[],
     ): Promise<CreateProjectResponse> {
-        return this.executeProjectCreation(async () => {
+        return this.executeProjectCreation(async (controller) => {
             const [generatedPage, projectPath] = await Promise.all([
-                this.generatePage(prompt, images),
-                this.runCreate(),
+                this.generatePage(controller, prompt, images).catch((error) => ({ error })),
+                this.runCreate(controller),
             ]);
 
-            if (this.abortController?.signal.aborted) {
-                throw new Error('AbortError');
+            if (controller.signal.aborted) {
+                throw new DOMException('Project creation cancelled', 'AbortError');
+            }
+
+            if ('error' in generatedPage) {
+                const reason =
+                    generatedPage.error instanceof Error
+                        ? generatedPage.error.message
+                        : String(generatedPage.error);
+                const warning = `AI page generation was skipped: ${reason}. The starter project is ready to run without AI.`;
+                console.warn(warning);
+                this.emitPromptProgress('AI unavailable. Opening the starter project...', 100);
+                return { projectPath, content: '', warning };
             }
 
             await this.applyGeneratedPage(projectPath, generatedPage);
@@ -71,27 +88,21 @@ export class ProjectCreator {
     }
 
     public async createBlankProject(): Promise<CreateProjectResponse> {
-        return this.executeProjectCreation(async () => {
-            const projectPath = await this.runCreate();
+        return this.executeProjectCreation(async (controller) => {
+            const projectPath = await this.runCreate(controller);
             return { projectPath, content: '' };
         });
     }
 
     public cancel(): void {
-        if (this.abortController) {
-            this.abortController.abort();
-            this.abortController = null;
-        }
+        this.abortController?.abort();
     }
 
     private async generatePage(
+        parentController: AbortController,
         prompt: string,
         images: ImageMessageContext[],
     ): Promise<{ path: string; content: string }> {
-        if (!this.abortController) {
-            throw new Error('No active creation process');
-        }
-
         const messages = this.getMessages(prompt, images);
         this.emitPromptProgress('Generating page...', 10);
         const systemPrompt = new PromptProvider().getCreatePageSystemPrompt();
@@ -103,30 +114,48 @@ export class ProjectCreator {
             },
         };
 
-        const response = await Chat.stream([systemMessage, ...messages], StreamRequestType.CREATE, {
-            abortController: this.abortController,
-            skipSystemPrompt: true,
-        });
-
-        if (response.type !== 'full') {
-            throw new Error('Failed to generate page. ' + this.getStreamErrorMessage(response));
+        const generationController = new AbortController();
+        const forwardAbort = () => generationController.abort();
+        if (parentController.signal.aborted) {
+            forwardAbort();
+        } else {
+            parentController.signal.addEventListener('abort', forwardAbort, { once: true });
         }
+        const timeout = setTimeout(() => generationController.abort(), 60_000);
 
-        const content = extractCodeBlocks(response.text);
+        try {
+            const response = await Chat.stream(
+                [systemMessage, ...messages],
+                StreamRequestType.CREATE,
+                {
+                    abortController: generationController,
+                    skipSystemPrompt: true,
+                },
+            );
 
-        return {
-            path: PAGE_SYSTEM_PROMPT.defaultPath,
-            content,
-        };
+            if (response.type !== 'full') {
+                throw new Error('Failed to generate page. ' + this.getStreamErrorMessage(response));
+            }
+
+            const content = extractCodeBlocks(response.text);
+            if (!content.trim()) {
+                throw new Error('AI returned an empty page. The starter page was preserved.');
+            }
+            parse(content, { sourceType: 'module', plugins: ['typescript', 'jsx'] });
+
+            return {
+                path: PAGE_SYSTEM_PROMPT.defaultPath,
+                content,
+            };
+        } finally {
+            clearTimeout(timeout);
+            parentController.signal.removeEventListener('abort', forwardAbort);
+        }
     }
 
-    private async runCreate(): Promise<string> {
-        if (!this.abortController) {
-            throw new Error('No active creation process');
-        }
-
-        if (this.abortController.signal.aborted) {
-            throw new Error('AbortError');
+    private async runCreate(controller: AbortController): Promise<string> {
+        if (controller.signal.aborted) {
+            throw new DOMException('Project creation cancelled', 'AbortError');
         }
 
         const projectsPath = getCreateProjectPath();

@@ -1,6 +1,7 @@
 import type { CreateProjectResponse } from '@onlook/models';
 import type { ImageMessageContext } from '@onlook/models/chat';
 import { MainChannels } from '@onlook/models/constants';
+import { toast } from '@onlook/ui/use-toast';
 import { makeAutoObservable } from 'mobx';
 import { ProjectTabs, type ProjectsManager } from '.';
 import { invokeMainChannel, sendAnalytics } from '../utils';
@@ -27,6 +28,7 @@ export class CreateManager {
     error: string | null = null;
     private cleanupListener: (() => void) | null = null;
     private slowConnectionTimer: ReturnType<typeof setTimeout> | null = null;
+    private operationId = 0;
 
     constructor(private projectsManager: ProjectsManager) {
         makeAutoObservable(this);
@@ -90,6 +92,7 @@ export class CreateManager {
     }
 
     async sendPrompt(prompt: string, images: ImageMessageContext[], blank: boolean = false) {
+        const operationId = ++this.operationId;
         sendAnalytics('prompt create project', {
             prompt,
             blank,
@@ -108,10 +111,25 @@ export class CreateManager {
             });
         }
 
+        if (operationId !== this.operationId) {
+            return;
+        }
+        if (result.cancelled) {
+            this.state = CreateState.PROMPT;
+            return;
+        }
+
         if (result.success && result.response?.projectPath) {
             this.state = CreateState.PROMPT;
             const newProject = this.createProject(result.response.projectPath);
             this.projectsManager.project = newProject;
+            if (result.response.warning) {
+                toast({
+                    variant: 'warning',
+                    title: 'Starter project created without AI',
+                    description: result.response.warning,
+                });
+            }
             setTimeout(() => {
                 this.projectsManager.projectsTab = ProjectTabs.PROJECTS;
             }, 100);
@@ -158,11 +176,13 @@ export class CreateManager {
     }
 
     async cancel() {
-        await invokeMainChannel(MainChannels.CANCEL_CREATE_NEW_PROJECT_PROMPT);
+        this.operationId++;
         this.state = CreateState.PROMPT;
+        await invokeMainChannel(MainChannels.CANCEL_CREATE_NEW_PROJECT_PROMPT);
     }
 
     cleanup() {
+        this.operationId++;
         if (this.cleanupListener) {
             this.cleanupListener();
             this.cleanupListener = null;

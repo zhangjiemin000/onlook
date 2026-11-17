@@ -5,6 +5,7 @@ import type { SampleFeedbackType } from '@trainloop/sdk';
 import type { CoreMessage } from 'ai';
 import { ipcMain } from 'electron';
 import Chat from '../chat';
+import { testLocalGateway } from '../chat/llmProvider';
 import trainloop from '../chat/trainloop';
 import { PersistentStorage } from '../storage';
 
@@ -26,6 +27,8 @@ export function listenForChatMessages() {
             return Chat.abortStream();
         },
     );
+
+    ipcMain.handle(MainChannels.TEST_LOCAL_AI_CONNECTION, () => testLocalGateway());
 
     ipcMain.handle(
         MainChannels.GET_CONVERSATIONS_BY_PROJECT,

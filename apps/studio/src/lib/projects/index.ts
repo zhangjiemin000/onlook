@@ -33,6 +33,7 @@ export class ProjectsManager {
         makeAutoObservable(this);
         this.createManager = new CreateManager(this);
         this.restoreProjects();
+        this.listenForDetectedDevServer();
     }
 
     get create() {
@@ -57,6 +58,26 @@ export class ProjectsManager {
         if (appState.activeProjectId) {
             this.project = this._projects.find((p) => p.id === appState.activeProjectId) || null;
         }
+    }
+
+    private listenForDetectedDevServer() {
+        window.api.on(
+            MainChannels.RUN_STATE_CHANGED,
+            ({ id, url }: { id?: string; url?: string }) => {
+                const project = this.project;
+                if (!id || !url || project?.id !== id || project.url === url) {
+                    return;
+                }
+
+                this.updatePartialProject({ url });
+                const frames = this.editorEngine?.canvas.frames ?? [];
+                if (frames.length > 0) {
+                    this.editorEngine?.canvas.saveFrames(
+                        frames.map((frame) => ({ ...frame, url })),
+                    );
+                }
+            },
+        );
     }
 
     createProject(

@@ -20,3 +20,9 @@ export type StreamRequestV2 = {
     requestType: StreamRequestType;
     useAnalytics: boolean;
 };
+
+export interface LocalGatewayTestResult {
+    success: boolean;
+    message: string;
+    model?: string;
+}

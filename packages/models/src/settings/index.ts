@@ -24,6 +24,11 @@ export interface ChatSettings {
     showMiniChat: boolean;
     customProxyUrl?: string;
     customModel?: string;
+    customApiKey?: string;
+}
+
+export interface LocalAICredentials {
+    apiKey?: string;
 }
 
 export interface ProjectsCache {

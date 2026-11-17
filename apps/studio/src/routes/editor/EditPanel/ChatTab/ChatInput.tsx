@@ -24,7 +24,7 @@ export const ChatInput = observer(() => {
     const userManager = useUserManager();
     const { t } = useTranslation();
     const activeModelLabel =
-        userManager.settings.settings?.chat?.customModel?.trim() || 'deepseek-flash[1m]';
+        userManager.settings.settings?.chat?.customModel?.trim() || 'Configure AI (optional)';
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const [inputValue, setInputValue] = useState('');
