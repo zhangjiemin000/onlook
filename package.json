@@ -18,6 +18,8 @@
         "build:foundation": "bun --filter @onlook/foundation build",
         "build:cli": "bun build:foundation && bun --filter onlook typecheck && bun --filter onlook build",
         "build:studio": "bun build:foundation && bun --filter @onlook/studio build",
+        "package:mac": "bun run build:studio && cd apps/studio && CSC_IDENTITY_AUTO_DISCOVERY=false ../../node_modules/.bin/electron-builder --config builder-config/base.ts --mac --arm64 --dir -c.mac.identity=null -c.electronDist=../../node_modules/electron/dist && codesign --force --deep --sign - release/*/mac-arm64/Onlook.app",
+        "start:local": "open -n -a ./node_modules/electron/dist/Electron.app --args \"$(pwd)/apps/studio\"",
         "clean": "git clean -xdf node_modules",
         "clean:workspaces": "bun --filter '*' clean",
         "db:gen": "bun --filter @onlook/supabase db:gen",

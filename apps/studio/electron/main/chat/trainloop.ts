@@ -9,10 +9,13 @@ class TrainLoopManager {
     private constructor() {}
 
     async getClient() {
+        if (!import.meta.env.VITE_SUPABASE_API_URL) {
+            return null;
+        }
         const proxyUrl = `${import.meta.env.VITE_SUPABASE_API_URL}${FUNCTIONS_ROUTE}${BASE_PROXY_ROUTE}${ProxyRoutes.TRAINLOOP}`;
         const authTokens = await getRefreshedAuthTokens();
         if (!authTokens) {
-            throw new Error('No auth tokens found');
+            return null;
         }
         return new Client(authTokens.accessToken, proxyUrl);
     }
@@ -26,6 +29,9 @@ class TrainLoopManager {
 
     public async saveApplyResult(messages: CoreMessage[], type: SampleFeedbackType) {
         const client = await this.getClient();
+        if (!client) {
+            return;
+        }
         await client.sendData(
             messages as unknown as Record<string, string>[],
             type,

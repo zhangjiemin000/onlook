@@ -90,7 +90,7 @@ class LlmManager {
                 abortSignal: this.abortController?.signal,
                 maxSteps: 10,
                 tools: chatToolSet,
-                maxTokens: 64000,
+                maxTokens: 16384,
                 onStepFinish: ({ toolResults }) => {
                     for (const toolResult of toolResults) {
                         this.emitMessagePart(toolResult);

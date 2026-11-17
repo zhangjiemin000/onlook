@@ -1,11 +1,68 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
 import type { StreamRequestType } from '@onlook/models/chat';
-import { BASE_PROXY_ROUTE, FUNCTIONS_ROUTE, ProxyRoutes } from '@onlook/models/constants';
 import { CLAUDE_MODELS, LLMProvider } from '@onlook/models/llm';
 import { type LanguageModelV1 } from 'ai';
-import { getRefreshedAuthTokens } from '../auth';
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir, userInfo } from 'node:os';
+import { join } from 'node:path';
+
 export interface OnlookPayload {
     requestType: StreamRequestType;
+}
+
+interface LocalGatewayEnv {
+    baseUrl: string;
+    token: string;
+    sonnetModel?: string;
+    haikuModel?: string;
+}
+
+function resolveLocalGatewayConfig(): LocalGatewayEnv {
+    let fileEnv: Record<string, string> = {};
+    try {
+        const candidateHomes = Array.from(new Set([userInfo().homedir, homedir()]));
+        for (const home of candidateHomes) {
+            const settingsPath = join(home, '.claude', 'settings.json');
+            if (existsSync(settingsPath)) {
+                const parsed = JSON.parse(readFileSync(settingsPath, 'utf8'));
+                if (parsed && typeof parsed.env === 'object') {
+                    fileEnv = parsed.env;
+                    break;
+                }
+            }
+        }
+    } catch (error) {
+        console.warn('Could not read local gateway settings, using defaults:', error);
+    }
+
+    const rawBase =
+        import.meta.env.VITE_LOCAL_PROXY_URL ||
+        process.env.ANTHROPIC_BASE_URL ||
+        fileEnv.ANTHROPIC_BASE_URL ||
+        'http://127.0.0.1:15721';
+
+    const trimmed = rawBase.replace(/\/+$/, '');
+    const baseUrl = trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
+
+    const token =
+        import.meta.env.VITE_ANTHROPIC_API_KEY ||
+        process.env.ANTHROPIC_API_KEY ||
+        fileEnv.ANTHROPIC_API_KEY ||
+        fileEnv.ANTHROPIC_AUTH_TOKEN ||
+        'local-proxy';
+
+    return {
+        baseUrl,
+        token,
+        sonnetModel:
+            process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ||
+            fileEnv.ANTHROPIC_DEFAULT_SONNET_MODEL ||
+            fileEnv.ANTHROPIC_MODEL,
+        haikuModel:
+            process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL ||
+            fileEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL ||
+            fileEnv.ANTHROPIC_MODEL,
+    };
 }
 
 export async function initModel(
@@ -23,35 +80,18 @@ export async function initModel(
 
 async function getAnthropicProvider(
     model: CLAUDE_MODELS,
-    payload: OnlookPayload,
+    _payload: OnlookPayload,
 ): Promise<LanguageModelV1> {
-    const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
-    const proxyUrl = `${import.meta.env.VITE_SUPABASE_API_URL}${FUNCTIONS_ROUTE}${BASE_PROXY_ROUTE}${ProxyRoutes.ANTHROPIC}`;
+    const gateway = resolveLocalGatewayConfig();
+    const resolvedModelId =
+        model === CLAUDE_MODELS.HAIKU ? gateway.haikuModel || model : gateway.sonnetModel || model;
 
-    const config: {
-        apiKey?: string;
-        baseURL?: string;
-        headers?: Record<string, string>;
-    } = {};
+    const anthropic = createAnthropic({
+        baseURL: gateway.baseUrl,
+        apiKey: gateway.token,
+    });
 
-    if (apiKey) {
-        config.apiKey = apiKey;
-    } else {
-        const authTokens = await getRefreshedAuthTokens();
-        if (!authTokens) {
-            throw new Error('No auth tokens found');
-        }
-        config.apiKey = '';
-        config.baseURL = proxyUrl;
-        config.headers = {
-            Authorization: `Bearer ${authTokens.accessToken}`,
-            'X-Onlook-Request-Type': payload.requestType,
-            'anthropic-beta': 'output-128k-2025-02-19',
-        };
-    }
-
-    const anthropic = createAnthropic(config);
-    return anthropic(model, {
+    return anthropic(resolvedModelId, {
         cacheControl: true,
     });
 }

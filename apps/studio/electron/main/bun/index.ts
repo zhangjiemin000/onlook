@@ -14,6 +14,9 @@ import { replaceCommand } from './parse';
 
 const execAsync = promisify(exec);
 
+import { existsSync } from 'fs';
+import { homedir, userInfo } from 'os';
+
 export const getBunExecutablePath = (): string => {
     const arch = process.arch === 'arm64' ? 'aarch64' : process.arch;
     const isProduction = app.isPackaged;
@@ -23,7 +26,23 @@ export const getBunExecutablePath = (): string => {
         ? path.join(process.resourcesPath, 'bun', binName)
         : path.join(__dirname, 'resources', 'bun', binName);
 
-    return bunPath;
+    if (existsSync(bunPath)) {
+        return bunPath;
+    }
+
+    for (const home of [userInfo().homedir, homedir()]) {
+        const userBun = path.join(
+            home,
+            '.bun',
+            'bin',
+            process.platform === 'win32' ? 'bun.exe' : 'bun',
+        );
+        if (existsSync(userBun)) {
+            return userBun;
+        }
+    }
+
+    return 'bun';
 };
 
 export async function runBunCommand(
