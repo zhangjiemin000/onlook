@@ -1,6 +1,6 @@
-import { useEditorEngine, useProjectsManager } from '@/components/Context';
+import { useEditorEngine, useProjectsManager, useUserManager } from '@/components/Context';
 import { FOCUS_CHAT_INPUT_EVENT } from '@/lib/editor/engine/chat';
-import { EditorTabValue } from '@/lib/models';
+import { EditorTabValue, SettingsTabValue } from '@/lib/models';
 import { compressImage } from '@/lib/utils';
 import type { ChatMessageContext, ImageMessageContext } from '@onlook/models/chat';
 import { MessageContextType } from '@onlook/models/chat';
@@ -21,7 +21,10 @@ import Suggestions from './Suggestions';
 export const ChatInput = observer(() => {
     const editorEngine = useEditorEngine();
     const projectsManager = useProjectsManager();
+    const userManager = useUserManager();
     const { t } = useTranslation();
+    const activeModelLabel =
+        userManager.settings.settings?.chat?.customModel?.trim() || 'deepseek-flash[1m]';
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const [inputValue, setInputValue] = useState('');
@@ -422,10 +425,14 @@ export const ChatInput = observer(() => {
                     </Tooltip>
                     <Button
                         variant={'outline'}
-                        className="w-fit h-fit py-0.5 px-2.5 text-foreground-tertiary hidden"
+                        className="w-fit h-7 py-0.5 px-2 text-xs text-foreground-tertiary hover:text-foreground self-center"
+                        onClick={() => {
+                            editorEngine.isSettingsOpen = true;
+                            editorEngine.settingsTab = SettingsTabValue.PREFERENCES;
+                        }}
                     >
-                        <Icons.FilePlus className="mr-2" />
-                        <span className="text-smallPlus">File Reference</span>
+                        <Icons.Gear className="w-3.5 h-3.5 mr-1.5" />
+                        <span className="truncate max-w-[140px]">{activeModelLabel}</span>
                     </Button>
                 </div>
                 {editorEngine.chat.isWaiting ? (

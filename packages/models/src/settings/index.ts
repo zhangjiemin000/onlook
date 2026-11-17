@@ -22,6 +22,8 @@ export interface ChatSettings {
     autoApplyCode: boolean;
     expandCodeBlocks: boolean;
     showMiniChat: boolean;
+    customProxyUrl?: string;
+    customModel?: string;
 }
 
 export interface ProjectsCache {

@@ -5,6 +5,7 @@ import { type LanguageModelV1 } from 'ai';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir, userInfo } from 'node:os';
 import { join } from 'node:path';
+import { PersistentStorage } from '../storage';
 
 export interface OnlookPayload {
     requestType: StreamRequestType;
@@ -13,7 +14,7 @@ export interface OnlookPayload {
 interface LocalGatewayEnv {
     baseUrl: string;
     token: string;
-    sonnetModel?: string;
+    primaryModel?: string;
     haikuModel?: string;
 }
 
@@ -35,7 +36,12 @@ function resolveLocalGatewayConfig(): LocalGatewayEnv {
         console.warn('Could not read local gateway settings, using defaults:', error);
     }
 
+    const userSettings = PersistentStorage.USER_SETTINGS.read() || {};
+    const customProxyUrl = userSettings.chat?.customProxyUrl?.trim();
+    const customModel = userSettings.chat?.customModel?.trim();
+
     const rawBase =
+        customProxyUrl ||
         import.meta.env.VITE_LOCAL_PROXY_URL ||
         process.env.ANTHROPIC_BASE_URL ||
         fileEnv.ANTHROPIC_BASE_URL ||
@@ -51,17 +57,23 @@ function resolveLocalGatewayConfig(): LocalGatewayEnv {
         fileEnv.ANTHROPIC_AUTH_TOKEN ||
         'local-proxy';
 
+    const resolvedDefaultModel =
+        customModel ||
+        process.env.ANTHROPIC_MODEL ||
+        fileEnv.ANTHROPIC_MODEL ||
+        process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ||
+        fileEnv.ANTHROPIC_DEFAULT_SONNET_MODEL;
+
     return {
         baseUrl,
         token,
-        sonnetModel:
-            process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ||
-            fileEnv.ANTHROPIC_DEFAULT_SONNET_MODEL ||
-            fileEnv.ANTHROPIC_MODEL,
+        primaryModel: resolvedDefaultModel,
         haikuModel:
+            customModel ||
+            process.env.ANTHROPIC_MODEL ||
+            fileEnv.ANTHROPIC_MODEL ||
             process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL ||
-            fileEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL ||
-            fileEnv.ANTHROPIC_MODEL,
+            fileEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL,
     };
 }
 
@@ -84,7 +96,9 @@ async function getAnthropicProvider(
 ): Promise<LanguageModelV1> {
     const gateway = resolveLocalGatewayConfig();
     const resolvedModelId =
-        model === CLAUDE_MODELS.HAIKU ? gateway.haikuModel || model : gateway.sonnetModel || model;
+        model === CLAUDE_MODELS.HAIKU
+            ? gateway.haikuModel || model
+            : gateway.primaryModel || model;
 
     const anthropic = createAnthropic({
         baseURL: gateway.baseUrl,

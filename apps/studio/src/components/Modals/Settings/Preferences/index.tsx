@@ -11,7 +11,9 @@ import {
     DropdownMenuTrigger,
 } from '@onlook/ui/dropdown-menu';
 import { Icons } from '@onlook/ui/icons';
+import { Input } from '@onlook/ui/input';
 import { observer } from 'mobx-react-lite';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { IDE } from '/common/ide';
 
@@ -23,7 +25,16 @@ const PreferencesTab = observer(() => {
     const ide = IDE.fromType(userManager.settings.settings?.editor?.ideType || DEFAULT_IDE);
     const isAnalyticsEnabled = userManager.settings.settings?.enableAnalytics || false;
     const shouldWarnDelete = userManager.settings.settings?.editor?.shouldWarnDelete ?? true;
+    const savedProxyUrl = userManager.settings.settings?.chat?.customProxyUrl ?? '';
+    const savedModel = userManager.settings.settings?.chat?.customModel ?? '';
+    const [proxyUrl, setProxyUrl] = useState(savedProxyUrl);
+    const [modelId, setModelId] = useState(savedModel);
     const IDEIcon = Icons[ide.icon];
+
+    useEffect(() => {
+        setProxyUrl(savedProxyUrl);
+        setModelId(savedModel);
+    }, [savedProxyUrl, savedModel]);
 
     function updateIde(ide: IDE) {
         userManager.settings.updateEditor({ ideType: ide.type });
@@ -38,8 +49,45 @@ const PreferencesTab = observer(() => {
         userManager.settings.updateEditor({ shouldWarnDelete: enabled });
     }
 
+    function saveGatewayConfig(nextProxy: string, nextModel: string) {
+        userManager.settings.updateChat({
+            customProxyUrl: nextProxy.trim(),
+            customModel: nextModel.trim(),
+        });
+    }
+
     return (
         <div className="flex flex-col gap-8 p-6">
+            <div className="flex justify-between items-center gap-4">
+                <div className="flex flex-col gap-2">
+                    <p className="text-largePlus">Local AI Proxy URL</p>
+                    <p className="text-foreground-onlook text-small">
+                        Anthropic-compatible gateway URL (defaults to http://127.0.0.1:15721)
+                    </p>
+                </div>
+                <Input
+                    className="w-[240px] text-small"
+                    placeholder="http://127.0.0.1:15721"
+                    value={proxyUrl}
+                    onChange={(e) => setProxyUrl(e.target.value)}
+                    onBlur={() => saveGatewayConfig(proxyUrl, modelId)}
+                />
+            </div>
+            <div className="flex justify-between items-center gap-4">
+                <div className="flex flex-col gap-2">
+                    <p className="text-largePlus">AI Model ID</p>
+                    <p className="text-foreground-onlook text-small">
+                        Model name sent to gateway (defaults to deepseek-flash[1m])
+                    </p>
+                </div>
+                <Input
+                    className="w-[240px] text-small"
+                    placeholder="deepseek-flash[1m]"
+                    value={modelId}
+                    onChange={(e) => setModelId(e.target.value)}
+                    onBlur={() => saveGatewayConfig(proxyUrl, modelId)}
+                />
+            </div>
             <div className="flex justify-between items-center">
                 <div className="flex flex-col gap-2">
                     <p className="text-largePlus">Language</p>
